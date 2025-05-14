@@ -1,535 +1,508 @@
-import { useState } from 'react';
-import { Col, Row, Table, Tag, Modal, Button, Spin, Card } from 'antd';
-import { 
-  AiOutlineStock, 
-  AiOutlineShopping, 
-  AiOutlineMessage,
-  AiOutlineTeam
-} from 'react-icons/ai';
-import { 
-  BsCashStack, 
-  BsBoxSeam
-} from 'react-icons/bs';
-import { 
-  MdOutlineSell
-} from 'react-icons/md';
-import { 
-  FiRefreshCw
-} from 'react-icons/fi';
-import { Pie, Line } from 'react-chartjs-2';
-import { 
-  Chart as ChartJS, 
-  ArcElement, 
-  Tooltip, 
-  Legend, 
-  LineElement, 
-  PointElement, 
-  LinearScale, 
+import React, { useState } from "react";
+import { Line, Pie } from "react-chartjs-2";
+import { Row, Col, Button, Tag, Card, Statistic } from "antd";
+import {
+  FiRefreshCw,
+  FiTrendingUp,
+  FiPackage,
+  FiDollarSign,
+  FiUsers,
+} from "react-icons/fi";
+import styled from "styled-components";
+import {
+  Chart as ChartJS,
   CategoryScale,
-  Title
-} from 'chart.js';
-import styled from 'styled-components';
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement,
+} from "chart.js";
 
-// Redux imports
-import { 
-  useCountProductsQuery,
-  useGetAllProductsQuery,
-} from '../redux/features/management/productApi';
-import { 
-  useYearlySaleQuery,
-  useDailySaleQuery,
-  useMonthlySaleQuery
-} from '../redux/features/management/saleApi';
-import { useGetAllSellerQuery } from '../redux/features/management/sellerApi';
-import { useGetAllBrandsQuery } from '../redux/features/management/brandApi';
-import { useGetAllPurchasesQuery } from '../redux/features/management/purchaseApi';
-
-// Register Chart.js
+// Register ChartJS components
 ChartJS.register(
-  ArcElement, Tooltip, Legend, LineElement, 
-  PointElement, LinearScale, CategoryScale, Title
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement
 );
 
-// Type Definitions
-interface Purchase {
-  _id: string;
-  referenceNumber?: string;
-  createdAt: string;
-  status?: string;
-}
-
-interface Category {
-  _id: string;
-  name: string;
-}
-
-interface Product {
-  _id: string;
-  category: string;
-  brand: string;
-}
-
-interface Brand {
-  _id: string;
-  name: string;
-}
-
-interface RecentActivity {
-  id: string;
-  action: string;
-  time: string;
-  status: string;
-}
-
-interface InventoryStatus {
-  id: string;
+// Type definitions
+type TimeRange = "daily" | "weekly" | "monthly";
+type SalesData = {
+  date: string;
+  totalSales: number;
+  orders: number;
+};
+type InventoryItem = {
   category: string;
   stock: number;
   total: number;
   color: string;
-}
+};
+type BrandItem = {
+  name: string;
+  productCount: number;
+  marketShare: number;
+};
 
 // Styled Components
 const DashboardContainer = styled.div`
   padding: 24px;
-  background: #f8f9fa;
+  background-color: #f5f7fa;
   min-height: 100vh;
 `;
 
-interface StatCardProps {
-  color?: string;
-}
-
-const StatCard = styled(Card)<StatCardProps>`
+const ChartCard = styled(Card)`
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  transition: all 0.3s;
-  border-top: 4px solid ${props => props.color || '#8b5cf6'};
+  margin-bottom: 24px;
 
-  &:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  .ant-card-head {
+    border-bottom: none;
   }
 
   .ant-card-body {
-    padding: 16px;
-    text-align: center;
+    padding-top: 0;
   }
 `;
 
-const StatValue = styled.div`
-  font-size: 28px;
-  font-weight: 700;
-  margin: 8px 0;
+const StatsContainer = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
 `;
 
-const StatLabel = styled.div`
-  font-size: 14px;
-  color: #666;
-  text-transform: uppercase;
-`;
-
-const ChartContainer = styled.div`
-  background: white;
+const StatCard = styled(Card)`
   border-radius: 8px;
-  padding: 16px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  margin-bottom: 16px;
+
+  .ant-statistic-title {
+    color: #6b7280;
+  }
+
+  .ant-statistic-content {
+    font-size: 24px;
+    font-weight: 600;
+  }
 `;
 
-const IconWrapper = styled.div<{ color: string }>`
-  font-size: 24px;
-  color: ${props => props.color};
-  margin-bottom: 8px;
+const TimeRangeTag = styled(Tag)<{ active: boolean }>`
+  cursor: pointer;
+  padding: 4px 12px;
+  border-radius: 16px;
+  background: ${(props) => (props.active ? "#1890ff" : "#f3f4f6")} !important;
+  color: ${(props) => (props.active ? "white" : "#4b5563")} !important;
+  border: none !important;
 `;
 
-// Mock categories data
-const mockCategories: Category[] = [
-  { _id: '1', name: 'Electronics' },
-  { _id: '2', name: 'Clothing' },
-  { _id: '3', name: 'Home Goods' },
-  { _id: '4', name: 'Sports' },
-  { _id: '5', name: 'Beauty' },
-];
+// Dashboard Component
+const Dashboard: React.FC = () => {
+  const [timeRange, setTimeRange] = useState<TimeRange>("weekly");
+  const [isLoading, setIsLoading] = useState(false);
 
-const Dashboard = () => {
-  // State
-  const [activeTab, setActiveTab] = useState<'daily' | 'monthly'>('daily');
-  const [showOrderModal, setShowOrderModal] = useState(false);
-
-  // API Hooks
-  const { 
-    data: products, 
-    isLoading: isLoadingProducts, 
-    refetch: refetchProducts
-  } = useCountProductsQuery(undefined);
-  
-  const { 
-    data: yearlyData, 
-    isLoading: isLoadingSales, 
-    refetch: refetchSales
-  } = useYearlySaleQuery(undefined);
-  
-  const { 
-    data: allProductsResponse, 
-    isLoading: isLoadingAllProducts 
-  } = useGetAllProductsQuery(undefined);
-  
-  const { 
-    data: sellersResponse, 
-    isLoading: isLoadingSellers 
-  } = useGetAllSellerQuery(undefined);
-  
-  const { 
-    data: brandsResponse, 
-    isLoading: isLoadingBrands 
-  } = useGetAllBrandsQuery(undefined);
-  
-  const { 
-    data: purchasesResponse, 
-    isLoading: isLoadingPurchases 
-  } = useGetAllPurchasesQuery(undefined);
-
-  // Chart data hooks
-  const { data: dailyData } = useDailySaleQuery(undefined);
-  const { data: monthlyData } = useMonthlySaleQuery(undefined);
-
-  // Use mock categories
-  const categories = mockCategories;
-
-  // Safely handle API responses
-  const allProducts = Array.isArray(allProductsResponse?.data) 
-    ? allProductsResponse.data 
-    : Array.isArray(allProductsResponse)
-    ? allProductsResponse
-    : [];
-    
-  const purchases = Array.isArray(purchasesResponse?.data) 
-    ? purchasesResponse.data 
-    : Array.isArray(purchasesResponse)
-    ? purchasesResponse
-    : [];
-
-  const brands = Array.isArray(brandsResponse?.data)
-    ? brandsResponse.data
-    : Array.isArray(brandsResponse)
-    ? brandsResponse
-    : [];
-
-  const sellers = Array.isArray(sellersResponse?.data)
-    ? sellersResponse.data
-    : Array.isArray(sellersResponse)
-    ? sellersResponse
-    : [];
-
-  // Calculate metrics
-  const totalSold = yearlyData?.data?.reduce(
-    (acc: number, cur: { totalQuantity?: number }) => acc + (cur.totalQuantity || 0), 0
-  ) || 0;
-
-  const totalRevenue = yearlyData?.data?.reduce(
-    (acc: number, cur: { totalRevenue?: number }) => acc + (cur.totalRevenue || 0), 0
-  ) || 0;
-
-  // Prepare data for visualizations
-  const recentActivities: RecentActivity[] = purchases
-    .slice(0, 5)
-    .map((purchase: Purchase) => ({
-      id: purchase._id,
-      action: `Purchase #${purchase.referenceNumber || purchase._id.slice(0, 6)}`,
-      time: new Date(purchase.createdAt).toLocaleDateString(),
-      status: purchase.status || 'completed'
-    }));
-
-  const inventoryStatus: InventoryStatus[] = categories.map((category: Category) => ({
-    id: category._id,
-    category: category.name,
-    stock: allProducts.filter((product: Product) => product.category === category._id).length,
-    total: allProducts.length,
-    color: `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`
-  }));
-
-  const brandDistribution = {
-    labels: brands.map((brand: Brand) => brand.name),
-    datasets: [{
-      data: brands.map((brand: Brand) => 
-        allProducts.filter((product: Product) => product.brand === brand._id).length
-      ),
-      backgroundColor: brands.map(() => 
-        `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`
-      ),
-      borderWidth: 1,
-    }]
+  // Mock Data
+  const salesData: Record<TimeRange, SalesData[]> = {
+    daily: [
+      { date: "2025-05-10", totalSales: 1200, orders: 24 },
+      { date: "2025-05-11", totalSales: 1800, orders: 32 },
+      { date: "2025-05-12", totalSales: 1500, orders: 28 },
+      { date: "2025-05-13", totalSales: 2100, orders: 38 },
+      { date: "2025-05-14", totalSales: 2400, orders: 42 },
+    ],
+    weekly: [
+      { date: "Week 18", totalSales: 8500, orders: 150 },
+      { date: "Week 19", totalSales: 9200, orders: 170 },
+      { date: "Week 20", totalSales: 10500, orders: 190 },
+      { date: "Week 21", totalSales: 9800, orders: 180 },
+      { date: "Week 22", totalSales: 11200, orders: 210 },
+    ],
+    monthly: [
+      { date: "January", totalSales: 38500, orders: 720 },
+      { date: "February", totalSales: 41200, orders: 780 },
+      { date: "March", totalSales: 45300, orders: 850 },
+      { date: "April", totalSales: 48700, orders: 920 },
+      { date: "May", totalSales: 52000, orders: 980 },
+    ],
   };
 
-  const salesTrendData = {
-    labels: dailyData?.data?.map((item: { day: string }) => item.day) || [],
-    datasets: [{
-      label: 'Daily Sales',
-      data: dailyData?.data?.map((item: { totalSales: number }) => item.totalSales) || [],
-      fill: false,
-      borderColor: '#1890ff',
-      tension: 0.4,
-    }]
+  const inventoryStatus: InventoryItem[] = [
+    { category: "Electronics", stock: 120, total: 500, color: "#6366f1" },
+    { category: "Clothing", stock: 80, total: 200, color: "#ec4899" },
+    { category: "Home Goods", stock: 50, total: 150, color: "#f59e0b" },
+    { category: "Sports", stock: 70, total: 180, color: "#10b981" },
+    { category: "Beauty", stock: 40, total: 100, color: "#3b82f6" },
+  ];
+
+  const brands: BrandItem[] = [
+    { name: "Brand A", productCount: 150, marketShare: 30 },
+    { name: "Brand B", productCount: 120, marketShare: 24 },
+    { name: "Brand C", productCount: 80, marketShare: 16 },
+    { name: "Brand D", productCount: 200, marketShare: 40 },
+    { name: "Brand E", productCount: 50, marketShare: 10 },
+  ];
+
+  // Stats data
+  const totalSales = salesData[timeRange].reduce(
+    (sum, item) => sum + item.totalSales,
+    0
+  );
+  const totalOrders = salesData[timeRange].reduce(
+    (sum, item) => sum + item.orders,
+    0
+  );
+  const inventoryValue = inventoryStatus.reduce(
+    (sum, item) => sum + item.stock * 50,
+    0
+  );
+  const activeCustomers = 1242;
+
+  // Chart data generators
+  const getSalesChartData = () => ({
+    labels: salesData[timeRange].map((item) => item.date),
+    datasets: [
+      {
+        label: "Total Sales",
+        data: salesData[timeRange].map((item) => item.totalSales),
+        borderColor: "#4f46e5",
+        backgroundColor: "rgba(79, 70, 229, 0.1)",
+        tension: 0.3,
+        fill: true,
+        borderWidth: 2,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+      },
+      {
+        label: "Orders",
+        data: salesData[timeRange].map((item) => item.orders * 50),
+        borderColor: "#10b981",
+        backgroundColor: "rgba(16, 185, 129, 0.1)",
+        tension: 0.3,
+        borderDash: [5, 5],
+        borderWidth: 2,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        yAxisID: "y1",
+      },
+    ],
+  });
+
+  const getInventoryChartData = () => ({
+    labels: inventoryStatus.map((item) => item.category),
+    datasets: [
+      {
+        data: inventoryStatus.map((item) => item.stock),
+        backgroundColor: inventoryStatus.map((item) => item.color),
+        borderWidth: 1,
+        hoverOffset: 15,
+      },
+    ],
+  });
+
+  const getBrandChartData = () => ({
+    labels: brands.map((brand) => brand.name),
+    datasets: [
+      {
+        data: brands.map((brand) => brand.productCount),
+        backgroundColor: [
+          "#6366f1",
+          "#ec4899",
+          "#f59e0b",
+          "#10b981",
+          "#3b82f6",
+        ],
+        borderWidth: 1,
+        hoverOffset: 15,
+      },
+    ],
+  });
+
+  // Chart options with proper TypeScript types
+  const salesChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: "top" as const,
+        labels: {
+          usePointStyle: true,
+          padding: 20,
+          font: {
+            size: 12,
+          },
+        },
+      },
+      tooltip: {
+        backgroundColor: "rgba(0, 0, 0, 0.7)",
+        titleFont: {
+          size: 14,
+          weight: "bold",
+        } as const,
+        bodyFont: {
+          size: 12,
+        } as const,
+        padding: 12,
+        usePointStyle: true,
+        callbacks: {
+          label: function (context: any) {
+            let label = context.dataset.label || "";
+            if (label.includes("Orders")) {
+              return `${label}: ${context.raw / 50}`;
+            }
+            if (label) {
+              label += ": ";
+            }
+            if (context.parsed.y !== null) {
+              label += new Intl.NumberFormat("en-US", {
+                style: "currency",
+                currency: "USD",
+              }).format(context.parsed.y);
+            }
+            return label;
+          },
+        },
+      },
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        grid: {
+          color: "rgba(0, 0, 0, 0.05)",
+        },
+        title: {
+          display: true,
+          text: "Sales ($)",
+          font: {
+            weight: "bold",
+          } as const,
+        },
+      },
+      y1: {
+        beginAtZero: true,
+        position: "right" as const,
+        grid: {
+          drawOnChartArea: false,
+        },
+        title: {
+          display: true,
+          text: "Orders",
+          font: {
+            weight: "bold",
+          } as const,
+        },
+      },
+      x: {
+        grid: {
+          display: false,
+        },
+      },
+    },
   };
 
-  // Loading state
-  const isLoading = isLoadingProducts || isLoadingSales || 
-                   isLoadingAllProducts || isLoadingSellers || isLoadingBrands || 
-                   isLoadingPurchases;
+  const pieChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: "bottom" as const,
+        labels: {
+          usePointStyle: true,
+          padding: 20,
+          font: {
+            size: 12,
+          },
+        },
+      },
+      tooltip: {
+        backgroundColor: "rgba(0, 0, 0, 0.7)",
+        titleFont: {
+          size: 14,
+          weight: "bold",
+        } as const,
+        bodyFont: {
+          size: 12,
+        } as const,
+        padding: 12,
+        usePointStyle: true,
+        callbacks: {
+          label: function (context: any) {
+            const label = context.label || "";
+            const value = context.raw || 0;
+            const total = context.dataset.data.reduce(
+              (a: number, b: number) => a + b,
+              0
+            );
+            const percentage = Math.round((value / total) * 100);
+            return `${label}: ${value} (${percentage}%)`;
+          },
+        },
+      },
+    },
+    cutout: "60%",
+  };
 
-  if (isLoading) return <Spin size="large" style={{ width: '100%', marginTop: '100px' }} />;
+  const handleRefresh = () => {
+    setIsLoading(true);
+    setTimeout(() => setIsLoading(false), 1000);
+  };
 
   return (
     <DashboardContainer>
       {/* Header */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        marginBottom: '24px' 
-      }}>
-        <h1 style={{ fontSize: '24px', fontWeight: '600', margin: 0 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 24,
+        }}
+      >
+        <h1 style={{ fontSize: "24px", fontWeight: 600, margin: 0 }}>
           Dashboard Overview
         </h1>
-        <Button 
-          icon={<FiRefreshCw />} 
-          onClick={() => {
-            refetchProducts();
-            refetchSales();
-          }}
+        <Button
+          icon={<FiRefreshCw />}
+          loading={isLoading}
+          onClick={handleRefresh}
         >
           Refresh Data
         </Button>
       </div>
 
       {/* Stats Cards */}
-      <Row gutter={[16, 16]} style={{ marginBottom: '24px' }}>
-        <Col xs={24} sm={12} md={6}>
-          <StatCard color="#8b5cf6">
-            <IconWrapper color="#8b5cf6">
-              <AiOutlineStock />
-            </IconWrapper>
-            <StatValue>{(products?.data?.totalQuantity || 0).toLocaleString()}</StatValue>
-            <StatLabel>Total Inventory</StatLabel>
-          </StatCard>
-        </Col>
-
-        <Col xs={24} sm={12} md={6}>
-          <StatCard color="#10b981">
-            <IconWrapper color="#10b981">
-              <MdOutlineSell />
-            </IconWrapper>
-            <StatValue>{totalSold.toLocaleString()}</StatValue>
-            <StatLabel>Total Sold</StatLabel>
-          </StatCard>
-        </Col>
-
-        <Col xs={24} sm={12} md={6}>
-          <StatCard color="#3b82f6">
-            <IconWrapper color="#3b82f6">
-              <BsCashStack />
-            </IconWrapper>
-            <StatValue>${totalRevenue.toLocaleString()}</StatValue>
-            <StatLabel>Total Revenue</StatLabel>
-          </StatCard>
-        </Col>
-
-        <Col xs={24} sm={12} md={6}>
-          <StatCard color="#f59e0b">
-            <IconWrapper color="#f59e0b">
-              <AiOutlineTeam />
-            </IconWrapper>
-            <StatValue>{sellers.length.toLocaleString()}</StatValue>
-            <StatLabel>Active Sellers</StatLabel>
-          </StatCard>
-        </Col>
-      </Row>
+      <StatsContainer>
+        <StatCard>
+          <Statistic
+            title="Total Sales"
+            value={totalSales}
+            prefix={<span style={{ marginRight: 4 }}>₹</span>}
+            valueStyle={{ color: "#4f46e5" }}
+            formatter={(value) => `$${Number(value).toLocaleString()}`}
+          />
+        </StatCard>
+        <StatCard>
+          <Statistic
+            title="Total Orders"
+            value={totalOrders}
+            prefix={<FiPackage />}
+            valueStyle={{ color: "#10b981" }}
+          />
+        </StatCard>
+        <StatCard>
+          <Statistic
+            title="Inventory Value"
+            value={inventoryValue}
+            prefix={<FiTrendingUp />}
+            valueStyle={{ color: "#f59e0b" }}
+            formatter={(value) => `₹${Number(value).toLocaleString("en-IN")}`}
+          />
+        </StatCard>
+        <StatCard>
+          <Statistic
+            title="Active Customers"
+            value={activeCustomers}
+            prefix={<FiUsers />}
+            valueStyle={{ color: "#ec4899" }}
+          />
+        </StatCard>
+      </StatsContainer>
 
       {/* Main Content */}
       <Row gutter={[16, 16]}>
-        {/* Left Column */}
-        <Col xs={24} lg={12}>
-          <ChartContainer>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <h3 style={{ margin: 0 }}>Sales Analytics</h3>
+        <Col xs={24} lg={16}>
+          <ChartCard
+            title="Sales Analytics"
+            extra={
               <div>
-                <Tag 
-                  color={activeTab === 'daily' ? '#1890ff' : 'default'} 
-                  onClick={() => setActiveTab('daily')}
-                  style={{ cursor: 'pointer' }}
+                <TimeRangeTag
+                  active={timeRange === "daily"}
+                  onClick={() => setTimeRange("daily")}
                 >
                   Daily
-                </Tag>
-                <Tag 
-                  color={activeTab === 'monthly' ? '#1890ff' : 'default'} 
-                  onClick={() => setActiveTab('monthly')}
-                  style={{ marginLeft: '8px', cursor: 'pointer' }}
+                </TimeRangeTag>
+                <TimeRangeTag
+                  active={timeRange === "weekly"}
+                  onClick={() => setTimeRange("weekly")}
+                >
+                  Weekly
+                </TimeRangeTag>
+                <TimeRangeTag
+                  active={timeRange === "monthly"}
+                  onClick={() => setTimeRange("monthly")}
                 >
                   Monthly
-                </Tag>
+                </TimeRangeTag>
               </div>
+            }
+          >
+            <div style={{ height: 300 }}>
+              <Line data={getSalesChartData()} options={salesChartOptions} />
             </div>
-            <div style={{ height: '300px' }}>
-              <Line 
-                data={activeTab === 'daily' ? salesTrendData : {
-                  labels: monthlyData?.data?.map((item: { month: string }) => item.month) || [],
-                  datasets: [{
-                    label: 'Monthly Sales',
-                    data: monthlyData?.data?.map((item: { totalSales: number }) => item.totalSales) || [],
-                    fill: false,
-                    borderColor: '#1890ff',
-                    tension: 0.4,
-                  }]
-                }}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: { display: false }
-                  }
-                }}
-              />
-            </div>
-          </ChartContainer>
-
-          <ChartContainer>
-            <h3 style={{ marginBottom: '16px' }}>Inventory by Category</h3>
-            <div style={{ height: '300px' }}>
-              <Pie 
-                data={{
-                  labels: inventoryStatus.map(item => item.category),
-                  datasets: [{
-                    data: inventoryStatus.map(item => (item.stock / item.total) * 100),
-                    backgroundColor: inventoryStatus.map(item => item.color),
-                  }]
-                }}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: { 
-                      position: 'bottom',
-                      labels: {
-                        padding: 20
-                      }
-                    }
-                  }
-                }}
-              />
-            </div>
-          </ChartContainer>
+          </ChartCard>
         </Col>
 
-        {/* Right Column */}
-        <Col xs={24} lg={12}>
-          <ChartContainer>
-            <h3 style={{ marginBottom: '16px' }}>Recent Purchases</h3>
-            <Table 
-              dataSource={recentActivities}
-              columns={[
-                {
-                  title: 'Purchase',
-                  dataIndex: 'action',
-                  key: 'action'
-                },
-                {
-                  title: 'Date',
-                  dataIndex: 'time',
-                  key: 'time'
-                },
-                {
-                  title: 'Status',
-                  dataIndex: 'status',
-                  key: 'status',
-                  render: (status: string) => (
-                    <Tag color={status === 'completed' ? 'green' : 'blue'}>
-                      {status.toUpperCase()}
-                    </Tag>
-                  )
-                }
-              ]}
-              pagination={false}
-              size="small"
-            />
-          </ChartContainer>
-
-          <ChartContainer>
-            <h3 style={{ marginBottom: '16px' }}>Brand Distribution</h3>
-            <div style={{ height: '300px' }}>
-              <Pie 
-                data={brandDistribution}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: { 
-                      position: 'bottom',
-                      labels: {
-                        padding: 20
-                      }
-                    }
-                  }
-                }}
-              />
+        <Col xs={24} lg={8}>
+          <ChartCard title="Brand Distribution">
+            <div style={{ height: 300 }}>
+              <Pie data={getBrandChartData()} options={pieChartOptions} />
             </div>
-          </ChartContainer>
+          </ChartCard>
+        </Col>
 
-          <ChartContainer>
-            <h3 style={{ marginBottom: '16px' }}>Quick Actions</h3>
-            <Row gutter={[16, 16]}>
-              <Col xs={12} sm={8}>
-                <Button 
-                  type="primary" 
-                  icon={<AiOutlineShopping />}
-                  block
-                  onClick={() => setShowOrderModal(true)}
-                >
-                  New Order
-                </Button>
-              </Col>
-              <Col xs={12} sm={8}>
-                <Button 
-                  icon={<BsBoxSeam />}
-                  block
-                >
-                  Add Product
-                </Button>
-              </Col>
-              <Col xs={12} sm={8}>
-                <Button 
-                  icon={<AiOutlineMessage />}
-                  block
-                >
-                  Messages
-                </Button>
-              </Col>
-            </Row>
-          </ChartContainer>
+        <Col xs={24} lg={12}>
+          <ChartCard title="Inventory by Category">
+            <div style={{ height: 300 }}>
+              <Pie data={getInventoryChartData()} options={pieChartOptions} />
+            </div>
+          </ChartCard>
+        </Col>
+
+        <Col xs={24} lg={12}>
+          <ChartCard title="Inventory Status">
+            <div style={{ height: 300, overflowY: "auto" }}>
+              {inventoryStatus.map((item) => (
+                <div key={item.category} style={{ marginBottom: 16 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      marginBottom: 4,
+                    }}
+                  >
+                    <span style={{ fontWeight: 500 }}>{item.category}</span>
+                    <span>
+                      {item.stock} / {item.total}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      height: 8,
+                      backgroundColor: "#e5e7eb",
+                      borderRadius: 4,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${(item.stock / item.total) * 100}%`,
+                        height: "100%",
+                        backgroundColor: item.color,
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </ChartCard>
         </Col>
       </Row>
-
-      {/* Order Modal */}
-      <Modal
-        title="Create New Order"
-        open={showOrderModal}
-        onCancel={() => setShowOrderModal(false)}
-        footer={[
-          <Button key="cancel" onClick={() => setShowOrderModal(false)}>
-            Cancel
-          </Button>,
-          <Button key="submit" type="primary">
-            Create Order
-          </Button>,
-        ]}
-        width={800}
-      >
-        <Spin spinning={isLoadingAllProducts || isLoadingSellers}>
-          <p>Order form would be implemented here using your saleApi</p>
-          <p>Available products: {allProducts.length}</p>
-          <p>Available sellers: {sellers.length}</p>
-        </Spin>
-      </Modal>
     </DashboardContainer>
   );
 };

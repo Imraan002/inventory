@@ -7,22 +7,30 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  Legend,
 } from 'recharts';
 import { useDailySaleQuery } from '../../redux/features/management/saleApi';
 import Loader from '../Loader';
-import { months } from '../../utils/generateDate';
+
+// Month names for formatting
+const months = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+];
 
 export default function DailyChart() {
   const { data: dailyData, isLoading } = useDailySaleQuery(undefined);
 
-  if (isLoading)
+  if (isLoading) {
     return (
-      <Flex>
+      <Flex align="center" justify="center" style={{ height: 300 }}>
         <Loader />
       </Flex>
     );
+  }
 
-  const data = dailyData?.data.map(
+  // Format data with fallback for empty state
+  const data = dailyData?.data?.map(
     (item: {
       day: number;
       month: number;
@@ -34,27 +42,58 @@ export default function DailyChart() {
       revenue: item.totalRevenue,
       quantity: item.totalQuantity,
     })
-  );
+  ) || [];
+
+  // If no data available after loading
+  if (!data || data.length === 0) {
+    return (
+      <Flex align="center" justify="center" style={{ height: 300 }}>
+        <p>No sales data available</p>
+      </Flex>
+    );
+  }
 
   return (
-    <ResponsiveContainer width='100%' height={300}>
+    <ResponsiveContainer width="100%" height={300}>
       <AreaChart
-        width={500}
-        height={400}
         data={data}
         margin={{
           top: 10,
           right: 30,
-          left: 0,
+          left: 20,
           bottom: 0,
         }}
       >
-        <CartesianGrid strokeDasharray='3 3' />
-        <XAxis dataKey='name' />
+        <CartesianGrid strokeDasharray="3 3" />
+        <XAxis 
+          dataKey="name" 
+          tick={{ fontSize: 12 }}
+          interval={Math.floor(data.length / 5)} // Show fewer labels if many data points
+        />
         <YAxis />
-        <Tooltip />
-        <Area type='monotone' dataKey='revenue' stroke='#8884d8' fill='#164863' />
-        <Area type='monotone' dataKey='quantity' stroke='#8884d8' fill='#164863' />
+        <Tooltip 
+          formatter={(value, name) => [
+            name === 'revenue' ? `₹${value}` : value,
+            name === 'revenue' ? 'Revenue' : 'Quantity'
+          ]}
+        />
+        <Legend />
+        <Area 
+          type="monotone" 
+          dataKey="revenue" 
+          name="Revenue"
+          stroke="#8884d8" 
+          fill="#8884d8" 
+          fillOpacity={0.4}
+        />
+        <Area 
+          type="monotone" 
+          dataKey="quantity" 
+          name="Quantity"
+          stroke="#82ca9d" 
+          fill="#82ca9d" 
+          fillOpacity={0.4}
+        />
       </AreaChart>
     </ResponsiveContainer>
   );
